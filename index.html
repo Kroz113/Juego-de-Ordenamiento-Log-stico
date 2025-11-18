@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Juego: Ordenar Pasos de Logística</title>
+    <!-- Cargamos Tailwind CSS para un diseño limpio -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Biblioteca para el efecto de confeti -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <style>
+        /* Estilo para los elementos mientras se arrastran */
+        .dragging {
+            opacity: 0.5;
+            transform: scale(0.95);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+        }
+        
+        /* Estilo para las zonas de soltar cuando un elemento está encima */
+        .drag-over {
+            background-color: #dbeafe; /* bg-blue-100 */
+            border-style: dashed;
+            border-color: #60a5fa; /* border-blue-400 */
+            transform: scale(1.01);
+            transition: all 0.2s;
+        }
+        
+        /* Animación suave para los elementos al aparecer */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        /* Estilos para la ventana modal de éxito */
+        #success-modal {
+            display: none;
+            z-index: 50;
+        }
+    </style>
+</head>
+<body class="bg-slate-100 font-sans p-6 md:p-10">
+
+    <!-- Ventana Modal de Éxito -->
+    <div id="success-modal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4">
+        <div class="bg-white rounded-xl shadow-2xl p-8 text-center max-w-md mx-auto transform transition-all" style="animation: fadeIn 0.3s ease-out;">
+            <h2 class="text-4xl font-bold text-green-600 mb-4">¡Excelente!</h2>
+            <p class="text-xl text-gray-700 mb-6">¡Has completado el desafío perfectamente! 🎉</p>
+            <button id="close-modal-button" class="px-6 py-2 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                Cerrar
+            </button>
+        </div>
+    </div>
+
+    <div class="max-w-7xl mx-auto bg-white p-6 md:p-8 rounded-2xl shadow-xl">
+        <header class="border-b border-gray-200 pb-6 mb-8">
+            <h1 class="text-4xl md:text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-teal-500 to-indigo-600 mb-4">
+                Desafío: Logística de Importación
+            </h1>
+            <p class="text-lg text-gray-600">Primero, arrastra y ordena los <b>Pasos Principales</b> a la izquierda. Luego, arrastra las <b>Sub-Tareas</b> dentro del paso que corresponda.</p>
+            
+            <!-- Área de Puntuación -->
+            <div id="score-area" class="text-xl font-bold text-gray-700 mt-6 text-center p-4 bg-gray-50 rounded-lg">
+                <!-- La puntuación se insertará aquí -->
+            </div>
+        </header>
+
+        <!-- Contenedor principal del juego -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+            
+            <!-- COLUMNA IZQUIERDA: ÁREA DE CONSTRUCCIÓN -->
+            <!-- Añadimos data-drop-target para identificarlo fácilmente -->
+            <div class="md:col-span-2 min-h-[400px] bg-blue-50 border-2 border-dashed border-blue-300 rounded-xl p-6 transition-colors duration-200" id="steps-container" data-type="main-container">
+                <!-- Los pasos ordenados irán aquí -->
+            </div>
+
+            <!-- COLUMNA DERECHA: PIEZAS -->
+            <div class="md:col-span-1 space-y-6">
+                <!-- Caja de Pasos Desordenados -->
+                <div class="bg-slate-200 p-4 rounded-lg shadow">
+                    <h3 class="text-xl font-semibold text-gray-700 mb-4 text-center">Pasos</h3>
+                    <div id="jumbled-steps" class="space-y-3 min-h-[100px] transition-colors duration-200" data-type="steps-source">
+                        <!-- Pasos desordenados irán aquí -->
+                    </div>
+                </div>
+
+                <!-- Caja de Tareas Desordenadas -->
+                <div class="bg-slate-200 p-4 rounded-lg shadow">
+                    <h3 class="text-xl font-semibold text-gray-700 mb-4 text-center">Sub-Tareas</h3>
+                    <div id="jumbled-tasks" class="space-y-3 min-h-[200px] transition-colors duration-200" data-type="tasks-source">
+                        <!-- Tareas desordenadas irán aquí -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Botones de Acción -->
+        <footer class="mt-10 pt-6 border-t border-gray-200 flex flex-col sm:flex-row justify-center items-center gap-4">
+            <button id="check-button" class="w-full sm:w-auto px-8 py-3 bg-teal-600 text-white text-lg font-semibold rounded-lg shadow-md hover:bg-teal-700 transition-all focus:outline-none focus:ring-2 focus:ring-teal-500">
+                Verificar
+            </button>
+            <button id="reset-button" class="w-full sm:w-auto px-8 py-3 bg-gray-600 text-white text-lg font-semibold rounded-lg shadow-md hover:bg-gray-700 transition-all focus:outline-none focus:ring-2 focus:ring-gray-500">
+                Reiniciar
+            </button>
+        </footer>
+
+        <!-- Área de Mensajes -->
+        <div id="message-area" class="mt-6 text-center text-xl font-medium"></div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+
+            // --- 1. DEFINICIÓN DE DATOS ---
+            const correctSteps = {
+                "step-1": {
+                    title: "Paso: Contacto proveedor",
+                    tasks: ["Identificar proveedor", "Negociar y generar acuerdo (Icoterms)"]
+                },
+                "step-2": {
+                    title: "Paso: Preparación y envío de mercadería",
+                    tasks: ["Emisión de orden de compra", "Preparación de mercadería", "Documentación de envío"]
+                },
+                "step-3": {
+                    title: "Paso: Transporte internacional",
+                    tasks: ["Transporte de mercadería"]
+                },
+                "step-4": {
+                    title: "Paso: Proceso Aduanero",
+                    tasks: ["Arribo y notificación", "Trámite aduanero (DIN)", "Inspección aduanera"]
+                },
+                "step-5": {
+                    title: "Paso: Transporte nacional",
+                    tasks: ["Liberación nacional", "Transporte bodega"]
+                },
+                "step-6": {
+                    title: "Paso: Recepción y almacenamiento",
+                    tasks: ["Recepción de mercadería", "Almacenamiento de mercadería"]
+                }
+            };
+
+            const allTasks = Object.values(correctSteps).flatMap(step => step.tasks);
+            const allSteps = Object.keys(correctSteps).map(key => ({ id: key, title: correctSteps[key].title }));
+
+            // Obtenemos la secuencia de IDs de pasos correctos (para la verificación robusta)
+            const correctStepKeys = Object.keys(correctSteps);
+            const totalSteps = correctStepKeys.length;
+
+            // --- 2. REFERENCIAS DOM ---
+            const jumbledContainer = document.getElementById('jumbled-tasks');
+            const jumbledStepsContainer = document.getElementById('jumbled-steps');
+            const stepsContainer = document.getElementById('steps-container');
+            const checkButton = document.getElementById('check-button');
+            const resetButton = document.getElementById('reset-button');
+            const messageArea = document.getElementById('message-area');
+            const successModal = document.getElementById('success-modal');
+            const closeModalButton = document.getElementById('close-modal-button');
+            const scoreArea = document.getElementById('score-area');
+
+            let draggedElement = null;
+
+            // --- 3. INICIALIZACIÓN Y RENDERIZADO ---
+            
+            // Función auxiliar para adjuntar los 5 listeners de D&D a un elemento
+            function addDragListeners(el) {
+                el.addEventListener('dragstart', handleDragStart);
+                el.addEventListener('dragover', handleDragOver);
+                el.addEventListener('dragenter', handleDragEnter);
+                el.addEventListener('dragleave', handleDragLeave);
+                el.addEventListener('drop', handleDrop);
+                el.addEventListener('dragend', handleDragEnd);
+            }
+
+            function initializeGame() {
+                // Limpiamos y preparamos contenedores
+                jumbledContainer.innerHTML = '';
+                jumbledStepsContainer.innerHTML = '';
+                stepsContainer.innerHTML = '';
+                messageArea.textContent = '';
+                scoreArea.innerHTML = 'Presiona "Verificar" para ver tu puntuación.';
+                successModal.style.display = 'none';
+
+                // 1. Renderizar Tareas Desordenadas
+                const shuffledTasks = [...allTasks].sort(() => Math.random() - 0.5);
+                shuffledTasks.forEach(task => jumbledContainer.appendChild(createTaskElement(task)));
+
+                // 2. Renderizar Pasos Desordenados
+                const shuffledSteps = [...allSteps].sort(() => Math.random() - 0.5);
+                shuffledSteps.forEach(step => jumbledStepsContainer.appendChild(createStepElement(step.id, step.title)));
+
+                // Añadimos listeners a los contenedores principales (zonas de "drop")
+                [stepsContainer, jumbledContainer, jumbledStepsContainer].forEach(container => {
+                    addDragListeners(container);
+                });
+            }
+
+            function createTaskElement(taskName) {
+                const el = document.createElement('div');
+                el.textContent = taskName;
+                el.setAttribute('draggable', 'true'); // Lo convierte en arrastrable
+                el.dataset.task = taskName; // Almacenamos el nombre de la tarea para la verificación
+                el.className = 'task bg-white p-3 rounded-lg shadow cursor-grab mb-2 border border-gray-200';
+                addDragListeners(el);
+                return el;
+            }
+
+            function createStepElement(stepId, title) {
+                const el = document.createElement('div');
+                el.dataset.stepId = stepId; // Almacenamos el ID del paso (Ej: step-1)
+                el.setAttribute('draggable', 'true');
+                el.className = 'step-container bg-teal-600 p-4 rounded-xl shadow-lg cursor-grab mb-4 text-left w-full';
+                
+                // Elemento de Título (no arrastrable para facilitar la interacción)
+                const titleEl = document.createElement('h3');
+                titleEl.textContent = title;
+                titleEl.className = 'text-lg font-bold text-white mb-3 pointer-events-none';
+                el.appendChild(titleEl);
+
+                // Contenedor de Sub-Tareas (zona de drop)
+                const taskList = document.createElement('div');
+                taskList.className = 'task-list min-h-[60px] bg-slate-100 rounded-md p-2 border-2 border-dashed border-slate-300';
+                taskList.dataset.dropTarget = 'tasks';
+                addDragListeners(taskList); // Listener específico para la lista interna (para soltar tareas)
+                el.appendChild(taskList);
+
+                addDragListeners(el); // Listener para arrastrar el paso completo
+                return el;
+            }
+
+            // --- 4. LÓGICA DRAG & DROP (ORIGINAL) ---
+
+            function handleDragStart(e) {
+                // Solo iniciamos si el elemento tiene atributo draggable
+                if (e.target.getAttribute('draggable') !== 'true') return;
+
+                draggedElement = e.target;
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', ''); // Necesario para Firefox
+                
+                e.stopPropagation(); // Evita que se arrastre el contenedor padre si arrastramos un hijo
+                setTimeout(() => e.target.classList.add('dragging'), 0);
+            }
+
+            function handleDragOver(e) {
+                e.preventDefault(); // Necesario para permitir el drop
+                e.dataTransfer.dropEffect = 'move';
+                return false;
+            }
+
+            function handleDragEnter(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                const target = e.currentTarget; // Usamos currentTarget para ser precisos con el listener
+
+                // Feedback visual solo en contenedores válidos según lo que arrastramos
+                if (isValidDropTarget(target)) {
+                    target.classList.add('drag-over');
+                }
+            }
+
+            function handleDragLeave(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.currentTarget.classList.remove('drag-over');
+            }
+
+            function handleDrop(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                const target = e.currentTarget;
+                target.classList.remove('drag-over');
+
+                if (!draggedElement) return;
+
+                // Lógica para PASOS
+                if (draggedElement.classList.contains('step-container')) {
+                    if (target.id === 'steps-container') {
+                        // Soltar en el contenedor principal (con ordenamiento)
+                        insertBasedOnMousePosition(target, draggedElement, e.clientY, '.step-container');
+                    } else if (target.id === 'jumbled-steps') {
+                        // Devolver a la caja de desordenados
+                        target.appendChild(draggedElement);
+                    }
+                }
+                // Lógica para TAREAS
+                else if (draggedElement.classList.contains('task')) {
+                    // **NOTA:** En la versión original, solo se añadía al final (no se permitía reordenamiento interno de tareas).
+                    if (target.classList.contains('task-list')) {
+                        // Soltar en una lista de tareas dentro de un paso
+                        target.appendChild(draggedElement);
+                    } else if (target.id === 'jumbled-tasks') {
+                        // Devolver a la caja de desordenados
+                        target.appendChild(draggedElement);
+                    }
+                }
+            }
+
+            function handleDragEnd(e) {
+                if (draggedElement) {
+                    draggedElement.classList.remove('dragging');
+                    draggedElement = null;
+                }
+                // Limpieza de seguridad
+                document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+            }
+
+            // Valida si el target actual acepta el elemento arrastrado
+            function isValidDropTarget(target) {
+                if (!draggedElement) return false;
+
+                if (draggedElement.classList.contains('step-container')) {
+                    return target.id === 'steps-container' || target.id === 'jumbled-steps';
+                }
+                if (draggedElement.classList.contains('task')) {
+                    return target.classList.contains('task-list') || target.id === 'jumbled-tasks';
+                }
+                return false;
+            }
+
+            // Función mágica para insertar elemento en la posición correcta del mouse
+            function insertBasedOnMousePosition(container, element, mouseY, selector) {
+                const afterElement = getDragAfterElement(container, mouseY, selector);
+                if (afterElement == null) {
+                    container.appendChild(element);
+                } else {
+                    container.insertBefore(element, afterElement);
+                }
+            }
+
+            function getDragAfterElement(container, y, selector) {
+                // Seleccionamos todos los elementos arrastrables dentro del contenedor, excepto el que estamos moviendo
+                const draggableElements = [...container.querySelectorAll(`${selector}:not(.dragging)`)];
+
+                return draggableElements.reduce((closest, child) => {
+                    const box = child.getBoundingClientRect();
+                    const offset = y - box.top - box.height / 2; // Distancia al centro vertical
+                    
+                    // Buscamos el elemento cuyo centro esté justo debajo de nuestro mouse (offset negativo más cercano a 0)
+                    if (offset < 0 && offset > closest.offset) {
+                        return { offset: offset, element: child };
+                    } else {
+                        return closest;
+                    }
+                }, { offset: Number.NEGATIVE_INFINITY }).element;
+            }
+
+            // --- 5. VERIFICACIÓN (ORIGINAL) ---
+
+            checkButton.addEventListener('click', () => {
+                let allCorrect = true;
+                let correctStepsCount = 0;
+                let correctTaskGroupsCount = 0;
+                
+                const orderedSteps = stepsContainer.querySelectorAll('.step-container');
+
+                // Verificación 1: Que todos los pasos estén en el contenedor y en el orden correcto
+                if (orderedSteps.length !== totalSteps) {
+                     messageArea.textContent = `Faltan pasos en el contenedor principal. (Esperado: ${totalSteps}, Encontrado: ${orderedSteps.length})`;
+                     messageArea.className = 'mt-6 text-center text-xl font-medium text-red-500';
+                     allCorrect = false;
+                     return; // Detenemos si no hay la cantidad correcta de pasos
+                }
+
+                // Iteramos sobre los pasos ordenados por el usuario
+                orderedSteps.forEach((stepElement, index) => {
+                    const stepId = stepElement.dataset.stepId;
+                    // Lógica original: asume que la clave correcta es "step-N" basado en la posición + 1
+                    const correctStepId = `step-${index + 1}`; 
+
+                    // 1. Verificar ORDEN del Paso
+                    if (stepId === correctStepId) {
+                        stepElement.classList.remove('ring-4', 'ring-red-400');
+                        stepElement.classList.add('ring-4', 'ring-green-400'); 
+                        correctStepsCount++;
+                    } else {
+                        stepElement.classList.remove('ring-4', 'ring-green-400');
+                        stepElement.classList.add('ring-4', 'ring-red-400');
+                        allCorrect = false;
+                    }
+
+                    // 2. Verificar TAREAS contenidas
+                    const taskList = stepElement.querySelector('.task-list');
+                    // Obtenemos las tareas que el usuario colocó en este paso
+                    const tasksInStep = Array.from(taskList.querySelectorAll('.task')).map(t => t.dataset.task);
+                    // Obtenemos las tareas correctas (usamos stepId, que puede ser incorrecto si el paso está desordenado)
+                    const correctTasks = correctSteps[stepId].tasks;
+                    
+                    // Comprobamos: 1) misma cantidad, Y 2) todas las tareas colocadas están en el array correcto
+                    const tasksAreCorrect = tasksInStep.length === correctTasks.length &&
+                                             tasksInStep.every(t => correctTasks.includes(t));
+
+                    if (tasksAreCorrect) {
+                        taskList.classList.remove('bg-red-100');
+                        taskList.classList.add('bg-green-100');
+                        correctTaskGroupsCount++;
+                    } else {
+                        taskList.classList.remove('bg-green-100');
+                        taskList.classList.add('bg-red-100');
+                        allCorrect = false;
+                    }
+                });
+
+                // Verificación 2: Que no quede ninguna tarea o paso en las cajas de desordenados
+                if (jumbledContainer.children.length > 0 || jumbledStepsContainer.children.length > 0) {
+                    allCorrect = false;
+                }
+
+                // Actualizar puntuación
+                scoreArea.innerHTML = `
+                    <span class="text-indigo-600 block md:inline">Orden de Pasos: ${correctStepsCount} / ${totalSteps}</span>
+                    <span class="text-gray-300 mx-2 hidden md:inline">|</span>
+                    <span class="text-teal-600 block md:inline">Contenido de Pasos: ${correctTaskGroupsCount} / ${totalSteps}</span>
+                `;
+
+                // Mostrar resultado final
+                if (allCorrect) {
+                    messageArea.textContent = '¡Felicidades! Todos los procesos y sub-tareas son correctos.';
+                    messageArea.className = 'mt-6 text-center text-xl font-medium text-green-600';
+                    successModal.style.display = 'flex';
+                    // Disparamos el confeti
+                    confetti({ particleCount: 150, spread: 90, origin: { y: 0.6 } });
+                } else {
+                    messageArea.textContent = 'Revisa los indicadores rojos. ¡Aún hay pasos o tareas incorrectas o sin colocar!';
+                    messageArea.className = 'mt-6 text-center text-xl font-medium text-red-500';
+                }
+            });
+
+            // --- 6. LISTENERS DE ACCIÓN ---
+            resetButton.addEventListener('click', initializeGame);
+            closeModalButton.addEventListener('click', () => successModal.style.display = 'none');
+
+            // Inicializar el juego al cargar
+            initializeGame();
+        });
+    </script>
+</body>
+</html>
